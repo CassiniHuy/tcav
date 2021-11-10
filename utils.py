@@ -1,6 +1,9 @@
+import os
+import logging
 import numpy as np
-import tensorflow as tf
 from scipy.stats import ttest_ind
+import cv2
+from torchvision import transforms
 
 
 def flatten(nested_list):
@@ -54,7 +57,7 @@ def process_what_to_run_expand(pairs_to_test,
         elif len(concept_set) > 1:
             new_pairs_to_test_t.append((target, concept_set))
         else:
-            tf.logging.info('PAIR NOT PROCCESSED')
+            logging.info('PAIR NOT PROCCESSED')
         new_pairs_to_test.extend(new_pairs_to_test_t)
 
     all_concepts = list(set(flatten([cs + [tc] for tc, cs in new_pairs_to_test])))
@@ -184,5 +187,28 @@ def print_results(results, random_counterpart=None, random_concepts=None, num_ra
 
 
 def make_dir_if_not_exists(directory):
-    if not tf.gfile.Exists(directory):
-        tf.gfile.MakeDirs(directory)
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+
+def get_cav_key(concepts, model_name, bottleneck, hparam):
+    return '-'.join([str(c) for c in concepts] + [model_name, bottleneck] + [str(v) for v in hparam.values()])
+
+def get_acts_key(concept, model_name, bottleneck_name):
+    return 'acts_{}_{}_{}'.format(concept, model_name, bottleneck_name)
+
+def get_grads_key(target_class, model_name, bottleneck):
+    return '_'.join(['grads', target_class, model_name, bottleneck])
+
+def load_img(path: str, norm: bool = True, size: tuple = (224, 224)):
+    img = cv2.imread(path, cv2.IMREAD_COLOR)
+    if img is None:
+        return None
+    img = cv2.resize(img, size)
+    if norm:
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                std=[0.229, 0.224, 0.225])])
+    else:
+        transform = transforms.Compose([transforms.ToTensor()])
+    return transform(img)

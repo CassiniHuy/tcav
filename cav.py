@@ -1,19 +1,20 @@
+import os
+import logging
 import os.path
 import pickle
 import numpy as np
 from sklearn import linear_model
 from sklearn import metrics
 from sklearn.model_selection import train_test_split
-import tensorflow as tf
-import utils as utils
-
+from .utils import *
 
 class CAV(object):
-    """CAV class contains methods for concept activation vector (CAV).
-
-    CAV represents semenatically meaningful vector directions in
-    network's embeddings (bottlenecks).
     """
+        CAV class contains methods for concept activation vector (CAV).
+
+        CAV represents semenatically meaningful vector directions in
+        network's embeddings (bottlenecks).
+        """
 
     @staticmethod
     def default_hparams():
@@ -23,9 +24,10 @@ class CAV(object):
         regularization of the CAV parameters.
 
         Returns:
-          TF.HParams for training.
+          parameter dict for training.
         """
-        return tf.contrib.training.HParams(model_type='linear', alpha=.01)
+        return {'model_type': 'logistic', 'C': 1.0}
+        # return {'model_type': 'linear', 'alpha': 0.1}
 
     @staticmethod
     def load_cav(cav_path):
@@ -37,7 +39,7 @@ class CAV(object):
         Returns:
           CAV instance.
         """
-        with tf.gfile.Open(cav_path, 'rb') as pkl_file:
+        with open(cav_path, 'rb') as pkl_file:
             save_dict = pickle.load(pkl_file)
 
         cav = CAV(save_dict['concepts'], save_dict['bottleneck'],
@@ -47,23 +49,7 @@ class CAV(object):
         return cav
 
     @staticmethod
-    def cav_key(concepts, bottleneck, model_type, alpha):
-        """A key of this cav (useful for saving files).
-
-        Args:
-          concepts: set of concepts used for CAV
-          bottleneck: the bottleneck used for CAV
-          model_type: the name of model for CAV
-          alpha: a parameter used to learn CAV
-
-        Returns:
-          a string cav_key
-        """
-        return '-'.join([str(c) for c in concepts
-                         ]) + '-' + bottleneck + '-' + model_type + '-' + str(alpha)
-
-    @staticmethod
-    def check_cav_exists(cav_dir, concepts, bottleneck, cav_hparams):
+    def check_cav_exists(cav_dir, concepts, model_name, bottleneck, cav_hparams):
         """Check if a CAV is saved in cav_dir.
 
         Args:
@@ -77,9 +63,8 @@ class CAV(object):
         """
         cav_path = os.path.join(
             cav_dir,
-            CAV.cav_key(concepts, bottleneck, cav_hparams.model_type,
-                        cav_hparams.alpha) + '.pkl')
-        return tf.gfile.Exists(cav_path)
+            get_cav_key(concepts, model_name, bottleneck, cav_hparams) + '.pkl')
+        return os.path.exists(cav_path)
 
     @staticmethod
     def _create_cav_training_set(concepts, bottleneck, acts):
@@ -141,17 +126,17 @@ class CAV(object):
           ValueError: if the model_type in hparam is not compatible.
         """
 
-        tf.logging.info('training with alpha={}'.format(self.hparams.alpha))
+        logging.info('training with {}'.format(','.join([str(k)+'='+str(v) for k, v in self.hparams.items()])))
         x, labels, labels2text = CAV._create_cav_training_set(
             self.concepts, self.bottleneck, acts)
 
-        if self.hparams.model_type == 'linear':
-            lm = linear_model.SGDClassifier(alpha=self.hparams.alpha, tol=1e-3, max_iter=1000)
-        elif self.hparams.model_type == 'logistic':
-            lm = linear_model.LogisticRegression()
+        if self.hparams['model_type'] == 'linear':
+            lm = linear_model.SGDClassifier(alpha=self.hparams['alpha'], tol=1e-3, max_iter=1000)
+        elif self.hparams['model_type'] == 'logistic':
+            lm = linear_model.LogisticRegression(C=self.hparams['C'])
         else:
             raise ValueError('Invalid hparams.model_type: {}'.format(
-                self.hparams.model_type))
+                self.hparams['model_type']))
 
         self.accuracies = self._train_lm(lm, x, labels, labels2text)
         if len(lm.coef_) == 1:
@@ -184,10 +169,10 @@ class CAV(object):
             'saved_path': self.save_path
         }
         if self.save_path is not None:
-            with tf.gfile.Open(self.save_path, 'w') as pkl_file:
+            with open(self.save_path, 'wb') as pkl_file:
                 pickle.dump(save_dict, pkl_file)
         else:
-            tf.logging.info('save_path is None. Not saving anything')
+            logging.info('save_path is None. Not saving anything')
 
     def _train_lm(self, lm, x, y, labels2text):
         """Train a model to get CAVs.
@@ -225,11 +210,12 @@ class CAV(object):
             # overall correctness is weighted by the number of examples in this class.
             num_correct += (sum(idx) * acc[labels2text[class_id]])
         acc['overall'] = float(num_correct) / float(len(y_test))
-        tf.logging.info('acc per class %s' % (str(acc)))
+        logging.info('acc per class %s' % (str(acc)))
         return acc
 
 
 def get_or_train_cav(concepts,
+                     model_name, 
                      bottleneck,
                      acts,
                      cav_dir=None,
@@ -259,19 +245,20 @@ def get_or_train_cav(concepts,
 
     cav_path = None
     if cav_dir is not None:
-        utils.make_dir_if_not_exists(cav_dir)
+        make_dir_if_not_exists(cav_dir)
         cav_path = os.path.join(
             cav_dir,
-            CAV.cav_key(concepts, bottleneck, cav_hparams.model_type,
-                        cav_hparams.alpha).replace('/', '.') + '.pkl')
+            get_cav_key(concepts, model_name, bottleneck, cav_hparams).replace('/', '.') + '.pkl')
 
-        if not overwrite and tf.gfile.Exists(cav_path):
-            tf.logging.info('CAV already exists: {}'.format(cav_path))
+        if not overwrite and os.path.exists(cav_path):
+            logging.info('CAV already exists: {}'.format(cav_path))
             cav_instance = CAV.load_cav(cav_path)
             return cav_instance
 
-    tf.logging.info('Training CAV {} - {} alpha {}'.format(
-        concepts, bottleneck, cav_hparams.alpha))
+    logging.info('Training CAV {} - {} - {}'.format(
+        concepts, 
+        bottleneck, 
+        ','.join([str(k)+'='+str(v) for k, v in cav_hparams.items()])))
     cav_instance = CAV(concepts, bottleneck, cav_hparams, cav_path)
     cav_instance.train({c: acts[c] for c in concepts})
     return cav_instance

@@ -7,7 +7,7 @@ class RunParams(object):
                  target_class,
                  activation_generator,
                  cav_dir,
-                 alpha,
+                 cav_hparams,
                  model,
                  overwrite=True):
         """A simple class to take care of TCAV parameters.
@@ -27,12 +27,13 @@ class RunParams(object):
         self.target_class = target_class
         self.activation_generator = activation_generator
         self.cav_dir = cav_dir
-        self.alpha = alpha
+        self.cav_hparams = cav_hparams
         self.overwrite = overwrite
         self.model = model
 
     def get_key(self):
         return '_'.join([
             str(self.bottleneck), '_'.join(self.concepts),
-            'target_' + self.target_class, 'alpha_' + str(self.alpha)
+            'target_' + self.target_class, '_'.join([
+                str(k)+'_'+str(v) for k, v in self.cav_hparams.items()])
         ])

@@ -1,10 +1,12 @@
+import os
+import logging
 from abc import ABCMeta
 from abc import abstractmethod
 from multiprocessing import dummy as multiprocessing
 import os.path
 import numpy as np
 import PIL.Image
-import tensorflow as tf
+from .utils import get_acts_key
 
 
 class ActivationGeneratorInterface(object):
@@ -16,7 +18,7 @@ class ActivationGeneratorInterface(object):
         pass
 
     @abstractmethod
-    def get_model():
+    def get_model(self):
         pass
 
 
@@ -45,27 +47,27 @@ class ActivationGeneratorBase(ActivationGeneratorInterface):
 
     def process_and_load_activations(self, bottleneck_names, concepts):
         acts = {}
-        if self.acts_dir and not tf.gfile.Exists(self.acts_dir):
-            tf.gfile.MakeDirs(self.acts_dir)
+        if self.acts_dir and not os.path.exists(self.acts_dir):
+            os.makedirs(self.acts_dir)
 
         for concept in concepts:
             if concept not in acts:
                 acts[concept] = {}
             for bottleneck_name in bottleneck_names:
-                acts_path = os.path.join(self.acts_dir, 'acts_{}_{}'.format(
-                    concept, bottleneck_name)) if self.acts_dir else None
-                if acts_path and tf.gfile.Exists(acts_path):
-                    with tf.gfile.Open(acts_path, 'rb') as f:
-                        acts[concept][bottleneck_name] = np.load(f).squeeze()
-                        tf.logging.info('Loaded {} shape {}'.format(
+                acts_path = os.path.join(
+                    self.acts_dir, get_acts_key(concept, self.model.model_name, bottleneck_name)) if self.acts_dir else None
+                if acts_path and os.path.exists(acts_path):
+                    with open(acts_path, 'rb') as f:
+                        acts[concept][bottleneck_name] = np.load(f, allow_pickle=False).squeeze()
+                        logging.info('Loaded {} shape {}'.format(
                             acts_path, acts[concept][bottleneck_name].shape))
                 else:
                     acts[concept][bottleneck_name] = self.get_activations_for_concept(
                         concept, bottleneck_name)
                     if acts_path:
-                        tf.logging.info('{} does not exist, Making one...'.format(
+                        logging.info('{} does not exist, Making one...'.format(
                             acts_path))
-                        with tf.gfile.Open(acts_path, 'w') as f:
+                        with open(acts_path, 'wb') as f:
                             np.save(f, acts[concept][bottleneck_name], allow_pickle=False)
         return acts
 
@@ -81,7 +83,7 @@ class ImageActivationGenerator(ActivationGeneratorBase):
     def get_examples_for_concept(self, concept):
         concept_dir = os.path.join(self.source_dir, concept)
         img_paths = [os.path.join(concept_dir, d)
-                     for d in tf.gfile.ListDirectory(concept_dir)]
+                     for d in os.listdir(concept_dir)]
         imgs = self.load_images_from_files(img_paths, self.max_examples,
                                            shape=self.model.get_image_shape()[:2])
         return imgs
@@ -99,12 +101,12 @@ class ImageActivationGenerator(ActivationGeneratorBase):
         Rasies:
           exception if the image was not the right shape.
         """
-        if not tf.gfile.Exists(filename):
-            tf.logging.error('Cannot find file: {}'.format(filename))
+        if not os.path.exists(filename):
+            logging.error('Cannot find file: {}'.format(filename))
             return None
         try:
             # ensure image has no transparency channel
-            img = np.array(PIL.Image.open(tf.gfile.Open(filename, 'rb')).convert(
+            img = np.array(PIL.Image.open(open(filename, 'rb')).convert(
                 'RGB').resize(shape, PIL.Image.BILINEAR))
             # Normalize pixel values to between 0 and 1.
             img = np.float32(img) / 255.0
@@ -114,7 +116,7 @@ class ImageActivationGenerator(ActivationGeneratorBase):
                 return img
 
         except Exception as e:
-            tf.logging.info(e)
+            logging.info(e)
             return None
         return img
 
